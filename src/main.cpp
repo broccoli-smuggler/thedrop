@@ -90,6 +90,10 @@ void setup() {
   last_led_time = millis();
   digitalWrite(output_RPM_led, HIGH);
   read_wav_header();
+
+  esp_bd_addr_t home_adr = {0x00,0x1D,0xDF,0x1D,0x49,0xED};
+  a2dp_source.connect_to(home_adr);
+  // a2dp_source.start("Avantree Lock RX");
 }
 
 void loop() {
@@ -119,13 +123,12 @@ void update_ripems() {
     was_pressed = true;
     digitalWrite(output_RPM_led, HIGH);
 
-    if (a2dp_source.is_connected()) {
-      a2dp_source.start("Avantree Lock RX");
+    if (!a2dp_source.is_connected()) {
       a2dp_source.reconnect();
+    } else {
+      Serial.print("playing?");
+      a2dp_source.set_data_source(heart);
     }
-
-    a2dp_source.set_data_source(heart);
-    Serial.print("playing?");
   }
 
   // on down edge.
