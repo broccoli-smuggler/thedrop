@@ -1,13 +1,14 @@
 #include <Arduino.h>
 #include <Audio.h>
-#include <DacESP32.h>
 #include <FS.h>
 #include <SPIFFS.h>
 #include <ezButton.h>
+
 #define FORMAT_SPIFFS_IF_FAILED true
-#define I2S_DOUT 25
-#define I2S_BCLK 27
+#define I2S_DOUT 14
+#define I2S_BCLK 25
 #define I2S_LRC 26
+
 // put function declarations here:
 void update_ripems();
 void update_pulse_ripems();
@@ -41,12 +42,10 @@ unsigned int sensor_prev = 0;
 const int output_RPM_led = 2;
 unsigned long last_led_time;
 
-// DAC
-DacESP32 dac1(GPIO_NUM_25), dac2(GPIO_NUM_26);
-
 float RPM;
 
 int last_pulse, pulse = 0;
+const char* audio_sample = "heartbeat1.wav";
 
 void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
 {
@@ -114,31 +113,44 @@ void setup()
 
     if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED))
     {
-
         Serial.println("SPIFFS Mount Failed");
-
         return;
     }
 
     listDir(SPIFFS, "/", 0);
 
-    Serial.println("Test complete");
-
     audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-    audio.setVolume(21); // 0...21}
+    audio.connecttoFS(SPIFFS, audio_sample);
+    audio.setFileLoop(true);
 }
 
 void loop()
 {
-
     update_ripems();
     update_pulse_ripems();
+    // audio.setSampleRate(44100);
     audio.loop();
+
     if (!fabs(rpm - last_rpm) < 0.00001)
         Serial.printf("RPM: %f\n", last_rpm = rpm);
     if (!fabs(pulse_rpm - last_pulse_rpm) < 0.00001)
         Serial.printf("Flywheel RPM: %f (%f)\n", last_pulse_rpm = pulse_rpm, (rpm) ? pulse_rpm / rpm : 0.0);
 }
+
+void audio_info(const char* info) {
+  Serial.print("INFO: ");
+  Serial.println(info);
+}
+
+// void audio_progress(uint32_t bytesRead, uint32_t fileSize) {
+//   // You can uncomment this if you want to see progress
+//   Serial.printf("Progress: %d/%d bytes\n", bytesRead, fileSize);
+// }
+
+// void audio_eof_mp3(const char* info) {
+//   Serial.println(info);
+//   audio.connecttoFS(SPIFFS, audio_sample);
+// }
 
 void update_ripems()
 {
