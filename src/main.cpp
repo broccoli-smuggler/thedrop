@@ -18,7 +18,7 @@ void update_audio_speed();
 // Audio
 Audio audio;
 unsigned long last_speed_adjustment;
-const char* audio_sample = "r.wav";
+const char* audio_sample = "heartbeat1.wav";
 long max_rpm = 600;
 int diff = 10;
 unsigned long last_pulse_test;
