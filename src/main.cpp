@@ -5,7 +5,7 @@
 #include <SPIFFS.h>
 #include <ezButton.h>
 #define FORMAT_SPIFFS_IF_FAILED true
-#define I2S_DOUT 25
+#define I2S_DOUT 14
 #define I2S_BCLK 27
 #define I2S_LRC 26
 // put function declarations here:
@@ -18,10 +18,10 @@ Audio audio;
 
 const int idle_time = 2500;
 const int sleep_timer = 10000;  // time to go to sleep after this timer expires
-const int input_ir_sensor_pin = 14;
+const int input_ir_sensor_pin = 13;
 const gpio_num_t magnetic_switch = GPIO_NUM_2;
 
-// using the IR sensor on flywheel
+// using the IR sensor on flywheel  
 unsigned long flywheel_falling_edge_time;
 bool flywheel_seen = false;
 float flywheel_rpm = 0.0;
