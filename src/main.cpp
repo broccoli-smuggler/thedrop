@@ -9,31 +9,24 @@
 #define I2S_BCLK 27
 #define I2S_LRC 26
 // put function declarations here:
-void update_ripems();
-void update_pulse_ripems();
+
+void update_flywheel_ripems();
 float revsPerMinute();
 void RPMLED(float);
 
 Audio audio;
 
-// RPM switch
-const int input_RPM_pin = 14;
-const int pulse_pin = 4;
-const unsigned int threshold = 100;
-ezButton rpm_button(input_RPM_pin);
-
 const int idle_time = 2500;
-
-unsigned long last_falling_edge_time;
-bool was_pressed = false;
-float rpm = 0;
-float last_rpm = 0.0;
+const int sleep_timer = 10000;  // time to go to sleep after this timer expires
+const int input_ir_sensor_pin = 14;
+const gpio_num_t magnetic_switch = GPIO_NUM_2;
 
 // using the IR sensor on flywheel
-unsigned long pulse_falling_edge_time;
-bool pulse_seen = false;
-float pulse_rpm = 0.0;
-float last_pulse_rpm = 0.0;
+unsigned long flywheel_falling_edge_time;
+bool flywheel_seen = false;
+float flywheel_rpm = 0.0;
+float last_flywheel_rpm = 0.0;
+int last_flywheel, flywheel = 0;
 
 unsigned int sensor_prev = 0;
 
@@ -41,163 +34,60 @@ unsigned int sensor_prev = 0;
 const int output_RPM_led = 2;
 unsigned long last_led_time;
 
-// DAC
-DacESP32 dac1(GPIO_NUM_25), dac2(GPIO_NUM_26);
-
-float RPM;
-
-int last_pulse, pulse = 0;
-
-void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
-{
-
-    Serial.printf("Listing directory: %s\r\n", dirname);
-
-    File root = fs.open(dirname);
-
-    if (!root)
-    {
-
-        Serial.println("- failed to open directory");
-
-        return;
-    }
-
-    if (!root.isDirectory())
-    {
-
-        Serial.println(" - not a directory");
-
-        return;
-    }
-
-    File file = root.openNextFile();
-
-    while (file)
-    {
-        if (file.isDirectory())
-        {
-            Serial.print("  DIR : ");
-            Serial.println(file.name());
-            if (levels)
-            {
-                listDir(fs, file.path(), levels - 1);
-            }
-        }
-        else
-        {
-            Serial.print("  FILE: ");
-            Serial.print(file.name());
-            Serial.print("\tSIZE: ");
-            Serial.println(file.size());
-        }
-        file = root.openNextFile();
-    }
-}
+unsigned long action_seen = 0; 
 
 void setup()
 {
+    
     // put your setup code here, to run once:
     Serial.begin(115200);
-    pinMode(input_RPM_pin, INPUT_PULLUP);
-    pinMode(pulse_pin, INPUT_PULLUP);
+    pinMode(input_ir_sensor_pin, INPUT_PULLUP);
     pinMode(output_RPM_led, OUTPUT);
+    esp_sleep_enable_ext0_wakeup(magnetic_switch,1);
+    Serial.flush();                                                // Waits for the transmission of outgoing serial data to complete.
+    esp_deep_sleep_start();
 
-    // attachInterrupt(input_RPM_pin, isr, RISING);
-    rpm_button.setDebounceTime(1);
-    rpm_button.resetCount();
-
-    last_falling_edge_time = millis();
     last_led_time = millis();
     digitalWrite(output_RPM_led, HIGH);
-    RPM = 0;
-
-    if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED))
-    {
-
-        Serial.println("SPIFFS Mount Failed");
-
-        return;
-    }
-
-    listDir(SPIFFS, "/", 0);
-
-    Serial.println("Test complete");
-
-    audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-    audio.setVolume(21); // 0...21}
 }
 
 void loop()
 {
-
-    update_ripems();
-    update_pulse_ripems();
+    unsigned long now = millis();
+    update_flywheel_ripems(now);
     audio.loop();
-    if (!fabs(rpm - last_rpm) < 0.00001)
-        Serial.printf("RPM: %f\n", last_rpm = rpm);
-    if (!fabs(pulse_rpm - last_pulse_rpm) < 0.00001)
-        Serial.printf("Flywheel RPM: %f (%f)\n", last_pulse_rpm = pulse_rpm, (rpm) ? pulse_rpm / rpm : 0.0);
+    if (!fabs(flywheel_rpm - last_flywheel_rpm) < 0.00001)
+        Serial.printf("Flywheel RPM: %f \n", last_flywheel_rpm = flywheel_rpm);
+    if(flywheel_rpm > 0.0)
+        action_seen = now;
+    if(now - action_seen > sleep_timer){
+        Serial.flush();                                                // Waits for the transmission of outgoing serial data to complete.
+        esp_deep_sleep_start();
+    }
 }
 
-void update_ripems()
+
+void update_flywheel_ripems(unsigned long now )
 {
     unsigned long revtime;
-    unsigned long now = millis();
-    rpm_button.loop(); // MUST call the loop() function first
-    // if there is no button press in the idle time assume it is not rotating
-    if (now - last_falling_edge_time > idle_time)
+    int flywheel = digitalRead(input_ir_sensor_pin);
+
+    if (now - flywheel_falling_edge_time > idle_time)
     {
-        rpm = 0.0;
+        flywheel_rpm = 0.0;
     }
-    if (rpm_button.isPressed() && !was_pressed)
+    if (flywheel && !flywheel_seen)
     {
-        was_pressed = true;
-        digitalWrite(output_RPM_led, HIGH);
+        flywheel_seen = true;
     }
     // on down edge.
-    if (rpm_button.isReleased() && was_pressed)
+    if (!flywheel && flywheel_seen)
     {
-        // Serial.printf("Off at %lu ms\n",now);
-        revtime = now - last_falling_edge_time;
+        revtime = now - flywheel_falling_edge_time;
         // Serial.printf("revtime=%lu ms\n",revtime);
-        rpm = 60000.0 / float(revtime);
-        was_pressed = false;
-        last_falling_edge_time = now;
-        digitalWrite(output_RPM_led, LOW);
+        flywheel_rpm = 60000.0 / float(revtime);
+        flywheel_seen = false;
+        flywheel_falling_edge_time = now;
     }
 }
 
-void update_pulse_ripems()
-{
-    unsigned long revtime;
-    unsigned long now = millis();
-    int pulse = digitalRead(pulse_pin);
-
-    if (now - pulse_falling_edge_time > idle_time)
-    {
-        pulse_rpm = 0.0;
-    }
-    if (pulse && !pulse_seen)
-    {
-        pulse_seen = true;
-    }
-    // on down edge.
-    if (!pulse && pulse_seen)
-    {
-        revtime = now - pulse_falling_edge_time;
-        // Serial.printf("revtime=%lu ms\n",revtime);
-        pulse_rpm = 60000.0 / float(revtime);
-        pulse_seen = false;
-        pulse_falling_edge_time = now;
-    }
-}
-
-// void RPMLED(float RPM) {
-//   if (RPM == 0) return;
-
-//   // If it's been long enough, turn off the LED
-//   if (millis() - last_led_time > switch_diff / 2.0) {
-//     digitalWrite(output_RPM_led, LOW);
-//   }
-// }
