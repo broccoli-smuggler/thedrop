@@ -26,11 +26,7 @@ bool update_on_loop = true;
 bool update_on_pulse = false;
 bool test_pulse = false;
 
-// RPM switch
-const int input_RPM_pin = 14;
-const int pulse_pin = 4;
 const unsigned int threshold = 100;
-ezButton rpm_button(input_RPM_pin);
 
 const int idle_time = 2500;
 const int sleep_timer = 10000;  // time to go to sleep after this timer expires
@@ -51,54 +47,7 @@ const int output_RPM_led = 2;
 
 int last_pulse, pulse = 0;
 
-void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
-{
-
-    Serial.printf("Listing directory: %s\r\n", dirname);
-
-    File root = fs.open(dirname);
-
-    if (!root)
-    {
-
-        Serial.println("- failed to open directory");
-
-        return;
-    }
-
-    if (!root.isDirectory())
-    {
-
-        Serial.println(" - not a directory");
-
-        return;
-    }
-
-    File file = root.openNextFile();
-
-    while (file)
-    {
-        if (file.isDirectory())
-        {
-            Serial.print("  DIR : ");
-            Serial.println(file.name());
-            if (levels)
-            {
-                listDir(fs, file.path(), levels - 1);
-            }
-        }
-        else
-        {
-            Serial.print("  FILE: ");
-            Serial.print(file.name());
-            Serial.print("\tSIZE: ");
-            Serial.println(file.size());
-        }
-        file = root.openNextFile();
-    }
-}
 unsigned long last_led_time;
-
 unsigned long action_seen = 0; 
 
 void setup()
@@ -109,14 +58,10 @@ void setup()
     pinMode(input_ir_sensor_pin, INPUT_PULLUP);
     pinMode(output_RPM_led, OUTPUT);
 
-    rpm_button.setDebounceTime(1);
-    rpm_button.resetCount();
-
-    last_falling_edge_time = millis();
     last_pulse_test = millis();
     esp_sleep_enable_ext0_wakeup(magnetic_switch,1);
-    Serial.flush();                                                // Waits for the transmission of outgoing serial data to complete.
-    esp_deep_sleep_start();
+    // Serial.flush();                                                // Waits for the transmission of outgoing serial data to complete.
+    // esp_deep_sleep_start();
 
     last_led_time = millis();
     digitalWrite(output_RPM_led, HIGH);
@@ -127,8 +72,6 @@ void setup()
         return;
     }
 
-    listDir(SPIFFS, "/", 0);
-
     audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
     audio.connecttoFS(SPIFFS, audio_sample);
     audio.setFileLoop(true);
@@ -136,18 +79,27 @@ void setup()
 
 void loop()
 {
-    update_ripems();
-    update_pulse_ripems();
+    unsigned long revtime;
     unsigned long now = millis();
+    update_flywheel_ripems(now);
+    audio.loop();
+    if (!fabs(flywheel_rpm - last_flywheel_rpm) < 0.00001)
+        Serial.printf("Flywheel RPM: %f \n", last_flywheel_rpm = flywheel_rpm);
+    if(flywheel_rpm > 0.0)
+        action_seen = now;
+    // if(now - action_seen > sleep_timer){
+    //     Serial.flush();  // Waits for the transmission of outgoing serial data to complete.
+    //     esp_deep_sleep_start();
+    // }
 
     if (test_pulse && now - last_pulse_test > 1000)
     {
-      if (pulse_rpm > max_rpm)
+      if (flywheel_rpm > max_rpm)
         diff = -10;
-      if (pulse_rpm <= 0)
+      if (flywheel_rpm <= 0)
         diff = 10;
       
-      pulse_rpm += diff;
+      flywheel_rpm += diff;
       last_pulse_test = now;
       if (update_on_pulse)
       {
@@ -155,13 +107,7 @@ void loop()
         update_audio_speed();
       }
     }
-
     update_audio();
-
-    if (!fabs(rpm - last_rpm) < 0.00001)
-        Serial.printf("RPM: %f\n", last_rpm = rpm);
-    if (!fabs(pulse_rpm - last_pulse_rpm) < 0.00001)
-        Serial.printf("Flywheel RPM: %f (%f)\n", last_pulse_rpm = pulse_rpm, (rpm) ? pulse_rpm / rpm : 0.0);
 }
 
 void audio_info(const char* info) {
@@ -182,25 +128,9 @@ void update_audio_speed()
 {
     static long min_speed = 0.4*100;
     static long max_speed = 2.0*100;
-    long result_speed = map(pulse_rpm, 0, 600, min_speed, max_speed);
+    long result_speed = map(flywheel_rpm, 0, 600, min_speed, max_speed);
     
     audio.audioFileSeek(float(result_speed/100.0));
-}
-
-void update_ripems()
-{
-    unsigned long revtime;
-    unsigned long now = millis();
-    update_flywheel_ripems(now);
-    audio.loop();
-    if (!fabs(flywheel_rpm - last_flywheel_rpm) < 0.00001)
-        Serial.printf("Flywheel RPM: %f \n", last_flywheel_rpm = flywheel_rpm);
-    if(flywheel_rpm > 0.0)
-        action_seen = now;
-    if(now - action_seen > sleep_timer){
-        Serial.flush();                                                // Waits for the transmission of outgoing serial data to complete.
-        esp_deep_sleep_start();
-    }
 }
 
 
