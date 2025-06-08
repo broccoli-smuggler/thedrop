@@ -12,10 +12,19 @@
 // put function declarations here:
 void update_ripems();
 void update_pulse_ripems();
-float revsPerMinute();
-void RPMLED(float);
+void update_audio();
+void update_audio_speed();
 
+// Audio
 Audio audio;
+unsigned long last_speed_adjustment;
+const char* audio_sample = "r.wav";
+long max_rpm = 600;
+int diff = 10;
+unsigned long last_pulse_test;
+bool update_on_loop = true;
+bool update_on_pulse = false;
+bool test_pulse = false;
 
 // RPM switch
 const int input_RPM_pin = 14;
@@ -40,12 +49,8 @@ unsigned int sensor_prev = 0;
 
 // RPM light
 const int output_RPM_led = 2;
-unsigned long last_led_time;
-
-float RPM;
 
 int last_pulse, pulse = 0;
-const char* audio_sample = "heartbeat1.wav";
 
 void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
 {
@@ -102,14 +107,12 @@ void setup()
     pinMode(pulse_pin, INPUT_PULLUP);
     pinMode(output_RPM_led, OUTPUT);
 
-    // attachInterrupt(input_RPM_pin, isr, RISING);
     rpm_button.setDebounceTime(1);
     rpm_button.resetCount();
 
     last_falling_edge_time = millis();
-    last_led_time = millis();
+    last_pulse_test = millis();
     digitalWrite(output_RPM_led, HIGH);
-    RPM = 0;
 
     if (!SPIFFS.begin(FORMAT_SPIFFS_IF_FAILED))
     {
@@ -128,8 +131,25 @@ void loop()
 {
     update_ripems();
     update_pulse_ripems();
-    // audio.setSampleRate(44100);
-    audio.loop();
+    unsigned long now = millis();
+
+    if (test_pulse && now - last_pulse_test > 1000)
+    {
+      if (pulse_rpm > max_rpm)
+        diff = -10;
+      if (pulse_rpm <= 0)
+        diff = 10;
+      
+      pulse_rpm += diff;
+      last_pulse_test = now;
+      if (update_on_pulse)
+      {
+        audio.setFilePos(0);
+        update_audio_speed();
+      }
+    }
+
+    update_audio();
 
     if (!fabs(rpm - last_rpm) < 0.00001)
         Serial.printf("RPM: %f\n", last_rpm = rpm);
@@ -138,19 +158,27 @@ void loop()
 }
 
 void audio_info(const char* info) {
-  Serial.print("INFO: ");
-  Serial.println(info);
+    Serial.println(info);
+    if (update_on_loop)    
+        update_audio_speed();
 }
 
-// void audio_progress(uint32_t bytesRead, uint32_t fileSize) {
-//   // You can uncomment this if you want to see progress
-//   Serial.printf("Progress: %d/%d bytes\n", bytesRead, fileSize);
-// }
+void update_audio()
+{
+    unsigned long now = millis();
 
-// void audio_eof_mp3(const char* info) {
-//   Serial.println(info);
-//   audio.connecttoFS(SPIFFS, audio_sample);
-// }
+    audio.loop();
+    last_speed_adjustment = now;
+}
+
+void update_audio_speed()
+{
+    static long min_speed = 0.4*100;
+    static long max_speed = 2.0*100;
+    long result_speed = map(pulse_rpm, 0, 600, min_speed, max_speed);
+    
+    audio.audioFileSeek(float(result_speed/100.0));
+}
 
 void update_ripems()
 {
@@ -204,12 +232,3 @@ void update_pulse_ripems()
         pulse_falling_edge_time = now;
     }
 }
-
-// void RPMLED(float RPM) {
-//   if (RPM == 0) return;
-
-//   // If it's been long enough, turn off the LED
-//   if (millis() - last_led_time > switch_diff / 2.0) {
-//     digitalWrite(output_RPM_led, LOW);
-//   }
-// }
