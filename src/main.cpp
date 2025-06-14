@@ -11,14 +11,16 @@
 
 // put function declarations here:
 
-void update_flywheel_ripems();
+void update_flywheel_ripems(unsigned long);
+void interupt_update_flywheel_ripems();
+void calc_flywheel_ripems();
 void update_audio();
 void update_audio_speed();
 
 // Audio
 Audio audio;
 unsigned long last_speed_adjustment;
-const char* audio_sample = "r.wav";
+const char *audio_sample = "r.wav";
 long max_rpm = 600;
 int diff = 10;
 unsigned long last_pulse_test;
@@ -29,12 +31,12 @@ bool test_pulse = false;
 const unsigned int threshold = 100;
 
 const int idle_time = 2500;
-const int sleep_timer = 10000;  // time to go to sleep after this timer expires
+const int sleep_timer = 10000; // time to go to sleep after this timer expires
 const int input_ir_sensor_pin = 13;
 const gpio_num_t magnetic_switch = GPIO_NUM_2;
 
-// using the IR sensor on flywheel  
-unsigned long flywheel_falling_edge_time;
+// using the IR sensor on flywheel
+unsigned long flywheel_falling_edge_time, prev_flywheel_falling_edge_time;
 bool flywheel_seen = false;
 float flywheel_rpm = 0.0;
 float last_flywheel_rpm = 0.0;
@@ -48,18 +50,18 @@ const int output_RPM_led = 2;
 int last_pulse, pulse = 0;
 
 unsigned long last_led_time;
-unsigned long action_seen = 0; 
+unsigned long action_seen = 0;
 
 void setup()
 {
-    
     // put your setup code here, to run once:
     Serial.begin(115200);
     pinMode(input_ir_sensor_pin, INPUT_PULLUP);
+    attachInterrupt(input_ir_sensor_pin, interupt_update_flywheel_ripems, FALLING);
     pinMode(output_RPM_led, OUTPUT);
 
     last_pulse_test = millis();
-    esp_sleep_enable_ext0_wakeup(magnetic_switch,1);
+    esp_sleep_enable_ext0_wakeup(magnetic_switch, 1);
     // Serial.flush();                                                // Waits for the transmission of outgoing serial data to complete.
     // esp_deep_sleep_start();
 
@@ -79,13 +81,14 @@ void setup()
 
 void loop()
 {
+    audio.loop();
     unsigned long revtime;
     unsigned long now = millis();
-    update_flywheel_ripems(now);
-    audio.loop();
+    // update_flywheel_ripems(now);
+    calc_flywheel_ripems();
     if (!fabs(flywheel_rpm - last_flywheel_rpm) < 0.00001)
         Serial.printf("Flywheel RPM: %f \n", last_flywheel_rpm = flywheel_rpm);
-    if(flywheel_rpm > 0.0)
+    if (flywheel_rpm > 0.0)
         action_seen = now;
     // if(now - action_seen > sleep_timer){
     //     Serial.flush();  // Waits for the transmission of outgoing serial data to complete.
@@ -94,25 +97,26 @@ void loop()
 
     if (test_pulse && now - last_pulse_test > 1000)
     {
-      if (flywheel_rpm > max_rpm)
-        diff = -10;
-      if (flywheel_rpm <= 0)
-        diff = 10;
-      
-      flywheel_rpm += diff;
-      last_pulse_test = now;
-      if (update_on_pulse)
-      {
-        audio.setFilePos(0);
-        update_audio_speed();
-      }
+        if (flywheel_rpm > max_rpm)
+            diff = -10;
+        if (flywheel_rpm <= 0)
+            diff = 10;
+
+        flywheel_rpm += diff;
+        last_pulse_test = now;
+        if (update_on_pulse)
+        {
+            audio.setFilePos(0);
+            update_audio_speed();
+        }
     }
     update_audio();
 }
 
-void audio_info(const char* info) {
+void audio_info(const char *info)
+{
     Serial.println(info);
-    if (update_on_loop)    
+    if (update_on_loop)
         update_audio_speed();
 }
 
@@ -126,15 +130,14 @@ void update_audio()
 
 void update_audio_speed()
 {
-    static long min_speed = 0.4*100;
-    static long max_speed = 2.0*100;
+    static long min_speed = 0.4 * 100;
+    static long max_speed = 2.0 * 100;
     long result_speed = map(flywheel_rpm, 0, 600, min_speed, max_speed);
-    
-    audio.audioFileSeek(float(result_speed/100.0));
+
+    audio.audioFileSeek(float(result_speed / 100.0));
 }
 
-
-void update_flywheel_ripems(unsigned long now )
+void update_flywheel_ripems(unsigned long now)
 {
     unsigned long revtime;
     int flywheel = digitalRead(input_ir_sensor_pin);
@@ -155,5 +158,18 @@ void update_flywheel_ripems(unsigned long now )
         flywheel_rpm = 60000.0 / float(revtime);
         flywheel_seen = false;
         flywheel_falling_edge_time = now;
+    }
+}
+
+void interupt_update_flywheel_ripems()
+{
+        flywheel_falling_edge_time = millis();
+}
+
+void calc_flywheel_ripems()
+{
+    if(flywheel_falling_edge_time > prev_flywheel_falling_edge_time){
+        flywheel_rpm = 60000.0 / (flywheel_falling_edge_time-prev_flywheel_falling_edge_time);
+        prev_flywheel_falling_edge_time = flywheel_falling_edge_time;
     }
 }
