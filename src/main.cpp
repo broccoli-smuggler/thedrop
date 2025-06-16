@@ -23,6 +23,7 @@ void update_audio();
 void update_audio_speed();
 void update_audio_volume();
 void fire();
+void hold_fire();
 
 // Fire
 const int output_RPM_led = 2;
@@ -39,7 +40,7 @@ int diff = 10;
 unsigned long last_pulse_test;
 bool update_on_loop = true;
 bool update_on_pulse = false;
-bool test_pulse = true;
+bool test_pulse = false;
 const int audio_loop_timer = 1000;
 unsigned long next_loop_update;
 
@@ -50,7 +51,8 @@ const unsigned int threshold = 100;
 const int idle_time = 2500;
 const int sleep_timer = 10000; // time to go to sleep after this timer expires
 const int input_ir_sensor_pin = 13;
-const gpio_num_t magnetic_switch = GPIO_NUM_2;
+const int output_fire_pin = 15;
+const gpio_num_t magnetic_switch = GPIO_NUM_5;
 
 // using the IR sensor on flywheel
 unsigned long flywheel_falling_edge_time, prev_flywheel_falling_edge_time;
@@ -62,12 +64,15 @@ int last_flywheel, flywheel = 0;
 unsigned int sensor_prev = 0;
 
 // RPM light
-const int output_fire = 2;
+// const int output_fire = 2;
 
 int last_pulse, pulse = 0;
 
 unsigned long last_led_time;
 unsigned long action_seen = 0;
+
+unsigned long start_firing = 0;
+const unsigned long fire_time = 2000; 
 
 void setup()
 {
@@ -76,6 +81,8 @@ void setup()
     pinMode(input_ir_sensor_pin, INPUT_PULLUP);
     attachInterrupt(input_ir_sensor_pin, interupt_update_flywheel_ripems, FALLING);
     pinMode(output_RPM_led, OUTPUT);
+    pinMode(output_fire_pin, OUTPUT);
+    digitalWrite(output_fire_pin, LOW);
 
     setup_sd();
 
@@ -130,14 +137,27 @@ void loop()
         }
     }
     update_audio();
+    hold_fire();
 }
 
 void fire()
 {
     Serial.println("Firing!");
-    digitalWrite(output_RPM_led, LOW);
-    digitalWrite(output_RPM_led, HIGH);
-    Serial.println("Done firing.");
+    digitalWrite(output_fire_pin, HIGH);
+    start_firing = millis();
+    Serial.println("Fire started!");
+    Serial.println(start_firing);
+}
+
+void hold_fire()
+{
+    if (millis() - start_firing > fire_time && start_firing != 0)
+    {
+        Serial.println("Stopping fire!");
+        Serial.println(millis());
+        digitalWrite(output_fire_pin, LOW);
+        start_firing = 0;
+    }
 }
 
 void audio_info(const char *info)
