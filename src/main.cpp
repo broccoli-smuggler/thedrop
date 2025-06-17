@@ -72,7 +72,7 @@ unsigned long last_led_time;
 unsigned long action_seen = 0;
 
 unsigned long start_firing = 0;
-const unsigned long fire_time = 2000; 
+const unsigned long fire_time = 1000; 
 
 void setup()
 {
@@ -170,7 +170,7 @@ void audio_info(const char *info)
         const char *prior_sample = current_audio_sample;
 
         // Update audio sample based on flywheel RPM
-        if (flywheel_rpm > 400)
+        if (flywheel_rpm > 1000)
         {
             current_audio_sample = audio_sample_2;
         } else 
@@ -181,7 +181,7 @@ void audio_info(const char *info)
         // On fast enough and ending
         Serial.println(prior_sample);
         Serial.println(flywheel_rpm);
-        if (prior_sample == audio_sample_2 && flywheel_rpm >= 400)
+        if (prior_sample == audio_sample_2 && flywheel_rpm >= 1000)
         {
             fire();
         }
