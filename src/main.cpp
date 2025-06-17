@@ -209,7 +209,7 @@ void update_audio()
 
 void update_audio_volume()
 {
-    long result_volume = map(flywheel_rpm, 0, 600, 0, 21);
+    long result_volume = map(flywheel_rpm, 0, 1500, 0, 21);
 
     audio.setVolume(uint8_t(result_volume));
 }
@@ -218,7 +218,7 @@ void update_audio_speed()
 {
     static long min_speed = 0.8 * 100;
     static long max_speed = 1.3 * 100;
-    long result_speed = map(flywheel_rpm, 0, 600, min_speed, max_speed);
+    long result_speed = map(flywheel_rpm, 0, 1500, min_speed, max_speed);
     audio.audioFileSeek(float(result_speed / 100.0));
 }
 
