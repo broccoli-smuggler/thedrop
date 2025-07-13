@@ -25,6 +25,9 @@ void update_audio_speed();
 void update_audio_volume();
 void test_pulse_rpms();
 
+// Serial
+bool debug = false;
+
 // test rpm
 long max_rpm = 2500;
 int diff = 50;
@@ -67,8 +70,10 @@ int triggered_count = 0;
 
 // RPM lights
 unsigned int pwm_leds = 4;
-float timer_pulse = 1.0;       // Timer duration for each pulse in seconds
-unsigned long  next_pulse, pulse = 0;
+unsigned long pulse_length = 3000;       // Timer duration for each pulse in seconds
+unsigned long last_pulse = 0;
+int last_intensity = 255;
+bool up = true; // If the lights are going up or down
 
 void setup()
 {
@@ -79,6 +84,7 @@ void setup()
     pinMode(pwm_leds, OUTPUT);
     pinMode(output_trigger_pin, OUTPUT);
     digitalWrite(output_trigger_pin, LOW);
+    analogWrite(pwm_leds, last_intensity);
 
     setup_sd();
 
@@ -107,7 +113,7 @@ void loop()
 
 void calc_flywheel_rpms()
 {
-    if (!fabs(flywheel_rpm - last_flywheel_rpm) < 0.00001)
+    if (debug && !fabs(flywheel_rpm - last_flywheel_rpm) < 0.00001)
         Serial.printf("Flywheel RPM: %f \n", last_flywheel_rpm = flywheel_rpm);
 
     if (millis() - prev_flywheel_falling_edge_time > 1800 && !test_pulse)
@@ -227,16 +233,34 @@ void update_trigger_switch()
 
 void update_leds()
 {
-    unsigned long now = millis();
+    long intensity;
 
-    // Default state when resting
-    if (flywheel_rpm < 1.0)
-    {
-        analogWrite(pwm_leds, 255);  
+    if (triggered)
+    {   
+        intensity = map(flywheel_rpm, 0, max_rpm, 20, 255);
     } 
     else
     {
-        
+        unsigned long now = millis();
+        unsigned long time_since_last_pulse = now - last_pulse;
+        if (time_since_last_pulse > pulse_length)
+        {
+            last_pulse = now;
+            up = !up; // Toggle the direction of the pulse
+        }
+
+        // Set the lights based on how far through the cycle we are
+        if (up)
+            intensity = map(time_since_last_pulse, 0, pulse_length, 0, 255);
+        else
+            intensity = map(time_since_last_pulse, 0, pulse_length, 255, 0);
+    }
+    
+    // We can't write the same value over and over
+    if (int(intensity) != last_intensity)
+    {
+        analogWrite(pwm_leds, intensity);
+        last_intensity = intensity;
     }
 }
 
