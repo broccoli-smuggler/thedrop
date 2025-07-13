@@ -5,6 +5,7 @@
 #include <SPI.h>
 #include <SPIFFS.h>
 #include <ezButton.h>
+#include <SimpleKalmanFilter.h>
 
 // Our files
 #include "sd_card.h"
@@ -42,10 +43,12 @@ const char *audio_sample_2 = "/drop_punk_met.wav";
 const char *current_audio_sample = audio_sample;
 const int audio_loop_timer = 1000;
 unsigned long next_loop_update;
+unsigned long audio_start_time = 0;
 
 
 // RPM calulation via ir sensor
-const int idle_time = 2500;
+SimpleKalmanFilter rpm_filter(0.1, 1, 0.1);
+const int idle_time = 2700;
 const int sleep_timer = 10000; // time to go to sleep after this timer expires
 const int input_ir_sensor_pin = 13;
 
@@ -58,7 +61,9 @@ int last_flywheel, flywheel = 0;
 
 // Trigger switch
 const int output_trigger_pin = 15;
-float trigger_switch_rpm = 300.0; // RPM to trigger the switch
+float trigger_switch_rpm = 700.0; // RPM to trigger the switch
+bool triggered = false;
+int triggered_count = 0;
 
 // RPM lights
 unsigned int pwm_leds = 4;
@@ -94,25 +99,29 @@ void loop()
 {
     test_pulse_rpms();
 
-    // calc_flywheel_rpms();
-    if (!fabs(flywheel_rpm - last_flywheel_rpm) < 0.00001)
-        Serial.printf("Flywheel RPM: %f \n", last_flywheel_rpm = flywheel_rpm);
-
-    if (millis() - prev_flywheel_falling_edge_time > 1500 && !test_pulse)
-        flywheel_rpm = 0.0;
-
-    if (flywheel_falling_edge_time > prev_flywheel_falling_edge_time)
-    {   float new_rpm = 60000.0 / (flywheel_falling_edge_time - prev_flywheel_falling_edge_time);
-        if (new_rpm < max_rpm * 2.0)
-        {
-            flywheel_rpm = new_rpm;
-            prev_flywheel_falling_edge_time = flywheel_falling_edge_time;
-        }
-    }
-
+    calc_flywheel_rpms();
     update_leds();
     update_trigger_switch();
     update_audio();
+}
+
+void calc_flywheel_rpms()
+{
+    if (!fabs(flywheel_rpm - last_flywheel_rpm) < 0.00001)
+        Serial.printf("Flywheel RPM: %f \n", last_flywheel_rpm = flywheel_rpm);
+
+    if (millis() - prev_flywheel_falling_edge_time > 1800 && !test_pulse)
+        flywheel_rpm = 0.0;
+
+    if (flywheel_falling_edge_time > prev_flywheel_falling_edge_time)
+    {   
+        float new_rpm = 60000.0 / (flywheel_falling_edge_time - prev_flywheel_falling_edge_time);
+        if (new_rpm < max_rpm * 1.1)
+        {
+            flywheel_rpm = rpm_filter.updateEstimate(new_rpm);
+            prev_flywheel_falling_edge_time = flywheel_falling_edge_time;
+        }
+    }
 }
 
 void audio_info(const char *info)
@@ -125,7 +134,7 @@ void audio_info(const char *info)
         const char *prior_sample = current_audio_sample;
 
         // Update audio sample based on flywheel RPM
-        if (flywheel_rpm > trigger_switch_rpm * 1.5)
+        if (flywheel_rpm > trigger_switch_rpm * 1.7)
         {
             current_audio_sample = audio_sample_2;
         } else 
@@ -134,7 +143,7 @@ void audio_info(const char *info)
         }
 
         // On fast enough and ending
-        Serial.println(prior_sample);
+        Serial.println(current_audio_sample);
 
         if (current_audio_sample != prior_sample)
         {
@@ -153,31 +162,33 @@ void update_audio()
 
     last_speed_adjustment = now;
 
-    if (flywheel_rpm > trigger_switch_rpm)
+    if (triggered)
     {
         if (!audio_playing)
         {
             audio.connecttoFS(SD, current_audio_sample);
             audio.setFileLoop(true);
             audio_playing = true;
+            audio_start_time = now;
             Serial.println("Playing");
         }
         audio.loop();
         update_audio_volume();
     }
-    else if (flywheel_rpm <= trigger_switch_rpm * 0.5 && audio_playing)
+    else if (!triggered && audio_playing)
     {
         Serial.println("Stopped");
         digitalWrite(output_trigger_pin, LOW);
         current_audio_sample = audio_sample;
         audio_playing = false;
+        audio_start_time = 0;
     }
 }
 
 void update_audio_volume()
 {
-    long result_volume = map(flywheel_rpm, 0, max_rpm, 6, 18);
-
+    unsigned long now = millis();
+    long result_volume = map(flywheel_rpm, 0, max_rpm, 1, 18);
     audio.setVolume(uint8_t(result_volume));
 }
 
@@ -194,12 +205,23 @@ void update_trigger_switch()
     unsigned long now = millis();
 
     if (flywheel_rpm > trigger_switch_rpm)
-    {
-        digitalWrite(output_trigger_pin, HIGH);
+    {   
+        // Sometimes we get a false fast reading
+        if (triggered_count <= 3)
+        {
+            triggered_count++;
+        } 
+        else 
+        {
+            triggered = true;
+            digitalWrite(output_trigger_pin, HIGH);
+        }
     }
-    else if (flywheel_rpm <= trigger_switch_rpm * 0.5)
+    else if (flywheel_rpm <= trigger_switch_rpm * 0.2)
     {
         digitalWrite(output_trigger_pin, LOW);
+        triggered = false;
+        triggered_count = 0;
     }
 }
 
